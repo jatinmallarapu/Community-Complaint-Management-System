@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>User Registration</title>
+</head>
+<body>
+
+<h2>Create an Account</h2>
+
+<form id="registerForm">
+    <label>Full Name:</label>
+    <input type="text" id="name" required><br><br>
+
+    <label>Email:</label>
+    <input type="email" id="email" required><br><br>
+
+    <label>Password:</label>
+    <input type="password" id="password" required><br><br>
+
+    <label>Apartment Location:</label>
+    <input type="text" id="apartmentlocation" required><br><br>
+
+    <label>Apartment Number:</label>
+    <input type="text" id="apartmentnumber" required><br><br>
+
+    <label>Date of Birth:</label>
+    <input type="date" id="dateofbirth" required><br><br>
+
+    <button type="submit">Register</button>
+</form>
+
+<p id="message"></p>
+
+
+<script>
+    let csrfToken = "";
+    let csrfHeader = "";
+
+    // Load CSRF when page loads
+    window.onload = () => {
+        fetchCsrfToken();
+    };
+
+    async function fetchCsrfToken() {
+        try {
+            const response = await fetch("http://localhost:8080/CCM/csrfToken", {
+                method: "GET",
+                credentials: "include"
+            });
+
+            if (!response.ok) {
+                console.error("CSRF fetch failed");
+                return;
+            }
+
+            const data = await response.json();
+            csrfToken = data.token;
+            csrfHeader = data.headerName;
+
+            console.log("Fetched CSRF:", csrfHeader, csrfToken);
+
+        } catch (err) {
+            console.error("CSRF error:", err);
+        }
+    }
+
+    document.getElementById("registerForm").addEventListener("submit", async function (event) {
+        event.preventDefault();
+
+        if (!csrfToken || !csrfHeader) {
+            console.warn("CSRF not ready, retrying...");
+            await fetchCsrfToken();
+        }
+
+        const dob = document.getElementById("dateofbirth").value; // yyyy-MM-dd
+
+        // Convert yyyy-MM-dd → MM/dd/yyyy
+        const [year, month, day] = dob.split("-");
+        const formattedDob = `${month}/${day}/${year}`;
+        const user = {
+            name: document.getElementById("name").value,
+            email: document.getElementById("email").value,
+            password: document.getElementById("password").value,
+            apartmentlocation: document.getElementById("apartmentlocation").value,
+            apartmentnumber: document.getElementById("apartmentnumber").value,
+            dateofbirth: formattedDob
+        };
+
+        try {
+            const response = await fetch("http://localhost:8080/CCM/registeruser", {
+                method: "POST",
+                credentials: "include",
+                headers: {
+                    "Content-Type": "application/json",
+                    [csrfHeader]: csrfToken
+                },
+                body: JSON.stringify(user)
+            });
+
+            const result = await response.text();
+            console.log("Registration response:", result);
+
+            const msgBox = document.getElementById("message");
+
+            if (result === "User Registered") {
+                msgBox.style.color = "green";
+                msgBox.innerText = result;
+
+                alert("Registration successful! Redirecting in 5 seconds...");
+                setTimeout(() => window.location.href = "login.html", 5000);
+            } else {
+                msgBox.style.color = "red";
+                msgBox.innerText = result;
+            }
+
+        } catch (error) {
+            console.error("Register error:", error);
+            document.getElementById("message").innerText = "Registration failed.";
+        }
+    });
+</script>
+
+</body>
+</html>

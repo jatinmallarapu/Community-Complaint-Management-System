@@ -1,0 +1,759 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>User Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/sockjs-client/dist/sockjs.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/stompjs/lib/stomp.min.js"></script>
+</head>
+<style>
+/* Chatbot container */
+.chatbot-container {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    width: 350px;
+    height: 450px;
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    z-index: 9999;
+    font-family: Arial, sans-serif;
+}
+.chatbot-header {
+    background: #007bff;
+    color: white;
+    padding: 10px;
+    text-align: center;
+    font-size: 16px;
+}
+.chatbot-messages {
+    flex: 1;
+    padding: 10px;
+    overflow-y: auto;
+}
+.chatbot-message {
+    margin: 5px 0;
+    padding: 8px 12px;
+    border-radius: 10px;
+    max-width: 80%;
+    word-wrap: break-word;
+}
+.chatbot-user { background: #007bff; color: white; align-self: flex-end; }
+.chatbot-bot { background: #e9ecef; color: #333; align-self: flex-start; }
+.chatbot-input-area {
+    display: flex;
+    padding: 8px;
+    border-top: 1px solid #ccc;
+}
+.chatbot-input-area input {
+    flex: 1;
+    padding: 8px;
+    border: 1px solid #ccc;
+    border-radius: 20px;
+    outline: none;
+}
+.chatbot-input-area button {
+    background: #007bff;
+    color: white;
+    border: none;
+    border-radius: 50%;
+    width: 36px;
+    height: 36px;
+    margin-left: 8px;
+    cursor: pointer;
+}
+</style>
+
+
+<body>
+    <!-- ============================= -->
+    <!-- NOTIFICATIONS SECTION -->
+    <!-- ============================= -->
+    <div id="notificationsContainer">
+        <h3>Notifications</h3>
+        <div id="notificationsList"></div>
+        <button id="refreshNotifications">Refresh Notifications</button>
+    </div>
+    
+
+    <!-- ============================= -->
+    <!-- WELCOME AND ACTION BUTTONS -->
+    <!-- ============================= -->
+    <h2>Welcome, <span id="usernameDisplay"></span></h2>
+    <button id="fetchDetailsButton">Fetch My Details</button>
+    <button id="viewComplaintsButton">View My Complaints</button>
+    
+    <button id="viewEventsButton">Upcoming Events Details</button>
+
+    <!-- ============================= -->
+    <!-- ANNOUNCEMENTS SECTION -->
+    <!-- ============================= -->
+   <div id="announcementsContainer">
+        <h3>Latest Announcements</h3>
+        <div id="announcementsList"></div>
+    </div>
+
+    <!-- ============================= -->
+    <!-- EVENTS SECTION -->
+    <!-- ============================= -->
+    <div id="eventsContainer" style="margin-top: 20px;">
+        <h3>Upcoming Events</h3>
+        <div id="eventsList"></div>
+    </div>
+
+    
+
+    <!-- ============================= -->
+    <!-- COMPLAINTS TABLE -->
+    <!-- ============================= -->
+    <table id="complainttable" style="display: none;">
+        <thead>
+            <tr>
+                <th>Sno</th>
+                <th>Complaint ID</th>
+                <th>Complaint</th>
+                <th>User ID</th>
+                <th>Complaint Date</th>
+                <th>Complaint Time</th>
+                <th>Complaint Status</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody id="tbody"></tbody>
+    </table>
+
+    <div id="userDetails"></div>
+
+    <!-- ============================= -->
+    <!-- REGISTER COMPLAINT -->
+    <!-- ============================= -->
+    <input type="text" placeholder="Enter your complaint" id="complaintInput">
+    <button id="registercomplaint">Register Complaint</button>
+    <button id="logoutButton">Logout</button>
+
+     
+
+<!-- ============================= -->
+    <!-- CHAT WITH ADMIN -->
+    <div>
+        <h3>Chat with Admin</h3>
+        <label>Chat With:</label>
+        <select id="chatWith">
+            <option value="Central">Admin Central</option>
+            <option value="East">Admin East</option>
+            <option value="West">Admin West</option>
+        </select>
+        <input type="text" id="userMessageInput" placeholder="Type message">
+        <button id="sendUserMessage">Send</button>
+        <div id="chatWindow" style="border:1px solid gray; padding:10px; height:200px; overflow:auto"></div>
+    </div>
+
+<!-- ============================= -->
+     <!-- RAG CHATBOT -->
+    <div class="chatbot-container" id="chatbot">
+    <div class="chatbot-header">🤖 Chatbot</div>
+    <div class="chatbot-messages" id="chatbotMessages">
+        <div class="chatbot-message chatbot-bot">Hello <span id="chatbotUserName"></span>! How can I help you today?</div>
+    </div>
+    <div class="chatbot-input-area">
+        <input id="chatbotInput" type="text" placeholder="Type your question...">
+        <button id="chatbotSend">➤</button>
+    </div>
+</div>
+
+
+    <script>
+        // =============================
+        // GLOBAL VARIABLES
+        // =============================
+        const username = sessionStorage.getItem('username');
+        document.getElementById('usernameDisplay').textContent = username;
+        const csrfToken = sessionStorage.getItem('csrfToken');
+        const csrfHeader = sessionStorage.getItem('csrfHeader');
+        // =============================
+        // FETCH USER ID
+        // =============================
+        async function getUserId(username) {
+            try {
+                const response = await fetch(`http://localhost:8080/CCM/getuserid?username=${encodeURIComponent(username)}`, {
+                    method: 'GET',
+                    credentials: 'include'
+                });
+                if (response.ok) {
+                    const userId = await response.json();
+                    sessionStorage.setItem('userId', userId);
+                    console.log(`username is ${username}, userId is ${userId}`);
+                    return userId;
+                }
+                console.error('Failed to fetch User ID');
+                return null;
+            } catch (error) {
+                console.error('Error fetching User ID:', error);
+                return null;
+            }
+        }
+
+        async function fetchUserIdAndLog() {
+            const userId = await getUserId(username);
+            if (userId) {
+                console.log(username, userId);
+                await fetchNotifications();
+            }
+        }
+
+        fetchUserIdAndLog();
+
+        // =============================
+        // LOGOUT
+        // =============================
+        document.getElementById('logoutButton').addEventListener('click', function() {
+            sessionStorage.removeItem('username');
+            sessionStorage.removeItem('userId');
+            sessionStorage.removeItem('csrfToken');
+            sessionStorage.removeItem('csrfHeader');
+            window.location.href = 'login.html';
+        });
+
+        // =============================
+        // FETCH USER DETAILS
+        // =============================
+        document.getElementById('fetchDetailsButton').addEventListener('click', async function() {
+            try {
+                const response = await fetch(`http://localhost:8080/CCM/userdetails/${username}`, {
+                    method: 'GET',
+                    credentials: 'include'
+                });
+                if (response.ok) {
+                    const data = await response.json();
+                    document.getElementById('userDetails').innerHTML = `
+                        <p><strong>Name:</strong> ${data.name}</p>
+                        <p><strong>Email:</strong> ${data.email}</p>
+                        <p><strong>Password:</strong> ${data.password}</p>
+                        <p><strong>Apartment Location:</strong> ${data.apartmentlocation}</p>
+                        <p><strong>Apartment Number:</strong> ${data.apartmentnumber}</p>
+                    `;
+                } else {
+                    alert('Failed to fetch user details');
+                }
+            } catch (error) {
+                console.error('Error fetching user details:', error);
+            }
+        });
+
+        // =============================
+        // VIEW COMPLAINTS
+        // =============================
+        document.getElementById('viewComplaintsButton').addEventListener('click', async function() {
+            const complaintTable = document.getElementById('complainttable');
+            const tbody = document.getElementById('tbody');
+            tbody.innerHTML = '';
+
+            try {
+                const response = await fetch(`http://localhost:8080/CCM/viewcomplaints/${username}`, {
+                    method: 'GET',
+                    credentials: 'include'
+                });
+
+                if (!response.ok) throw new Error('Failed to fetch complaints');
+
+                const complaintList = await response.json();
+                complaintList.forEach((complaint, index) => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td>${index + 1}</td>
+                        <td>${complaint.id}</td>
+                        <td>${complaint.complaint}</td>
+                        <td>${complaint.user ? complaint.user.id : ''}</td>
+                        <td>${complaint.complaintDate}</td>
+                        <td>${complaint.complaintTime}</td>
+                        <td>${complaint.complaintStatus}</td>
+                        <td>
+                            <button id="edit-${complaint.id}" onclick="editComplaint(${complaint.id})">Edit</button>
+                            <button id="delete-${complaint.id}" onclick="deleteComplaint(${complaint.id})">Delete</button>
+                        </td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+
+                complaintTable.style.display = 'table';
+            } catch (error) {
+                console.error('Error fetching complaints:', error);
+                alert('Could not load complaints.');
+            }
+        });
+
+        // =============================
+        // DELETE COMPLAINT
+        // =============================
+        const deleteComplaint = async function(complaintId) {
+            const headers = {'Content-Type': 'application/json'};
+            headers[csrfHeader] = csrfToken;
+
+            try {
+                const response = await fetch(`http://localhost:8080/CCM/deletecomplaint/${complaintId}`, {
+                    method: 'DELETE',
+                    credentials: 'include',
+                    headers: headers
+                });
+                const result = await response.text();
+                if (result === "Deleted Successfully") {
+                    const row = document.querySelector(`#delete-${complaintId}`).closest('tr');
+                    if (row) row.remove();
+                } else {
+                    alert('Failed to delete complaint');
+                }
+            } catch (error) {
+                console.error('Error deleting complaint:', error);
+            }
+        };
+
+        // =============================
+        // EDIT COMPLAINT
+        // =============================
+        const editComplaint = async function(complaintId) {
+            const row = document.querySelector(`#edit-${complaintId}`).closest('tr');
+            const complaintCell = row.children[2];
+            const oldComplaint = complaintCell.textContent;
+            const newComplaint = prompt("Edit your complaint:", oldComplaint);
+            if (!newComplaint || newComplaint === oldComplaint) return;
+
+            const headers = {'Content-Type': 'application/json'};
+            headers[csrfHeader] = csrfToken;
+
+            try {
+                const response = await fetch(`http://localhost:8080/CCM/editcomplaint?complaintId=${complaintId}`, {
+                    method: 'PUT',
+                    headers: headers,
+                    credentials: 'include',
+                    body: JSON.stringify(newComplaint)
+                });
+
+                if (response.ok) {
+                    complaintCell.textContent = newComplaint;
+                    alert("Complaint updated successfully!");
+                } else {
+                    alert("Failed to update complaint.");
+                }
+            } catch (error) {
+                console.error("Error editing complaint:", error);
+                alert("Error occurred while editing complaint.");
+            }
+        };
+
+        // =============================
+        // REGISTER COMPLAINT
+        // =============================
+        document.getElementById('registercomplaint').addEventListener('click', async function() {
+            const complaintInput = document.getElementById('complaintInput');
+            const complaintText = complaintInput.value.trim();
+            if (complaintText === '') {
+                alert('Please enter a complaint before submitting.');
+                return;
+            }
+
+            const headers = {'Content-Type': 'application/json'};
+            headers[csrfHeader] = csrfToken;
+
+            try {
+                const response = await fetch(`http://localhost:8080/CCM/registercomplaint/${username}`, {
+                    method: 'POST',
+                    headers: headers,
+                    credentials: 'include',
+                    body: JSON.stringify(complaintText)
+                });
+
+                const result = await response.text();
+                if (response.ok && result === "Complaint Registered") {
+                    alert('✅ Complaint registered successfully!');
+                    complaintInput.value = '';
+                } else {
+                    alert('❌ Failed to register complaint.');
+                }
+            } catch (error) {
+                console.error('Error registering complaint:', error);
+            }
+        });
+
+        // =============================
+        // FETCH NOTIFICATIONS
+        // =============================
+        async function fetchNotifications() {
+            const userId = sessionStorage.getItem('userId');
+            if (!userId) return;
+
+            try {
+                const response = await fetch(`http://localhost:8080/CCM/getallnotifications/${userId}`, {
+                    method: 'GET',
+                    credentials: 'include'
+                });
+
+                if (response.ok) {
+                    const notifications = await response.json();
+                    const container = document.getElementById('notificationsList');
+                    container.innerHTML = '';
+
+                    if (notifications.length === 0) {
+                        container.innerHTML = '<p>No new notifications.</p>';
+                        return;
+                    }
+
+                    notifications.forEach(notification => {
+                        const adminName = notification.admin ? notification.admin.adminname : 'System';
+                        const sentTime = new Date(notification.sentat).toLocaleString();
+
+                        const notificationDiv = document.createElement('div');
+                        notificationDiv.style.border = '1px solid gray';
+                        notificationDiv.style.padding = '10px';
+                        notificationDiv.style.marginBottom = '8px';
+                        notificationDiv.style.borderRadius = '5px';
+                        notificationDiv.dataset.notificationId = notification.id;
+
+                        const closeButton = document.createElement('button');
+                        closeButton.textContent = "Close";
+                        closeButton.addEventListener('click', async () => {
+                            if (notification.message.includes("RESOLVED")) {
+                                const headers = {'Content-Type': 'application/json'};
+                                headers[csrfHeader] = csrfToken;
+
+                                await fetch(`http://localhost:8080/CCM/deletecomplaintbasedonresolvednotification`, {
+                                    method: 'DELETE',
+                                    credentials: 'include',
+                                    headers: headers,
+                                    body: JSON.stringify(notification.message)
+                                });
+                            }
+                            await deleteNotification(notification.id, notificationDiv);
+                        });
+
+                        notificationDiv.innerHTML = `
+                            <p><strong>Message:</strong> ${notification.message}</p>
+                            <p><strong>Sent by:</strong> ${adminName}</p>
+                            <p><strong>Sent at:</strong> ${sentTime}</p>
+                        `;
+                        notificationDiv.appendChild(closeButton);
+                        container.appendChild(notificationDiv);
+                    });
+                } else {
+                    console.error('Failed to fetch notifications:', response.status);
+                }
+            } catch (error) {
+                console.error('Error fetching notifications:', error);
+            }
+        }
+
+        // =============================
+        // DELETE NOTIFICATION
+        // =============================
+        async function deleteNotification(notificationId, element) {
+            try {
+                const headers = {};
+                headers[csrfHeader] = csrfToken;
+                const response = await fetch(`http://localhost:8080/CCM/deletenotification?notificationId=${notificationId}`, {
+                    method: 'DELETE',
+                    credentials: 'include',
+                    headers: headers
+                });
+
+                if (response.ok) {
+                    element.remove();
+                } else {
+                    alert('Failed to delete notification');
+                }
+            } catch (error) {
+                console.error('Error deleting notification:', error);
+            }
+        }
+
+        // =============================
+        // REFRESH NOTIFICATIONS
+        // =============================
+        document.getElementById('refreshNotifications').addEventListener('click', fetchNotifications);
+
+        // =============================
+        // VIEW ANNOUNCEMENTS
+        // =============================
+        async function initDashboard() {
+            const username = sessionStorage.getItem('username');
+            document.getElementById('usernameDisplay').textContent = username;
+
+            const userId = await getUserId(username);
+            if (!userId) return alert('Failed to get User ID');
+
+            console.log(`User id: ${userId}, User name: ${username}`);
+            connect(userId);
+            loadMessages();
+        }
+        let stompClient = null;
+
+    function connect(userId) {
+        // Pass userId as query param to the WebSocket connection
+        const socket = new SockJS(`http://localhost:8080/ws?userid=${userId}`);
+        stompClient = Stomp.over(socket);
+
+        stompClient.connect({}, function (frame) {
+            console.log('Connected as:', userId);
+
+            // subscribe to global messages
+            stompClient.subscribe('/topic/announcement', function (message) {
+                const announc = JSON.parse(message.body);
+                console.log('Received announcement:', announc);
+                showAnnouncement(announc);
+            });
+            stompClient.subscribe(`/user/queue/adminmessage`, function(message) {
+                const msgObj = JSON.parse(message.body);
+                appendMessage(`Admin ${msgObj.region}: ${msgObj.content}---(${msgObj.timestamp})`);
+            });
+
+        }, function (error) {
+            console.error('WebSocket connection error:', error);
+        });
+    }
+
+    function appendMessage(text) {
+    const chatWindow = document.getElementById('chatWindow');
+    const p = document.createElement('p');
+    p.textContent = text;
+    chatWindow.appendChild(p);
+    chatWindow.scrollTop = chatWindow.scrollHeight;
+    }
+
+    document.getElementById('sendUserMessage').addEventListener('click', function() {
+    const userId = sessionStorage.getItem('userId');
+    const content = document.getElementById('userMessageInput').value;
+    const region = document.getElementById('chatWith').value;
+    if(!content) return;
+
+    // Map region to adminId (you can fetch this from DB initially)
+    let adminId = 0;
+    if(region==="Central") adminId=1;
+    else if(region==="East") adminId=2;
+    else if(region==="West") adminId=3;
+    const timestamp = new Date().toLocaleString();
+    const msg = {userId: parseInt(userId), adminId: adminId, content: content, timestamp:timestamp};
+    stompClient.send("/app/sendusermessage", {}, JSON.stringify(msg));
+    appendMessage(`You: ${content}---(${msg.timestamp})`);
+    document.getElementById('userMessageInput').value = '';
+    });
+    
+
+     async function loadMessages() {
+        try {
+            const userId = sessionStorage.getItem('userId');
+            const chatWindow = document.getElementById('chatWindow');
+            const response = await fetch(`http://localhost:8080/CCM/getalluseradminmessages?userId=${userId}`,{
+                method: 'GET',
+                credentials: 'include'
+            });
+            if (!response.ok) throw new Error('Network response was not ok');
+            const messages = await response.json();
+
+            chatWindow.innerHTML = ''; // Clear the chat window
+
+            messages.forEach(msg => {
+                const msgDiv = document.createElement('div');
+                msgDiv.style.borderBottom = "1px solid #ccc";
+                msgDiv.style.marginBottom = "5px";
+                msgDiv.style.paddingBottom = "5px";
+
+                msgDiv.innerHTML = `
+                    <strong>${msg.response.includes("UserId") ? 'You' : msg.response}:</strong> ${msg.content}<br>
+                    <small><strong>Time:</strong> ${msg.timestamp}</small>
+                `;
+                chatWindow.appendChild(msgDiv);
+            });
+
+            // Scroll to bottom
+            chatWindow.scrollTop = chatWindow.scrollHeight;
+        } catch (error) {
+            console.error('Error fetching messages:', error);
+        }
+    }
+
+    // Load messages initially
+    
+  
+    // announcements display function
+    function showAnnouncement(announc) {
+            const container = document.getElementById('announcementsList');
+            const div = document.createElement('div');
+            div.className = 'announcement';
+            div.innerHTML = `
+                <p><strong>Title:</strong> ${announc.title}</p>
+                <p><strong>Description:</strong> ${announc.description}</p>
+                <p><strong>Posted by: </strong> ${announc.admin.adminname}</p>
+                <p><strong>Posted on: </strong> ${announc.postdate} ${announc.posttime}</p>
+                <hr>
+            `;
+            container.prepend(div);
+            
+        }
+
+        // =============================
+        // Showing all announcements on load
+        // =============================
+         async function fetchAnnouncements() {
+        const csrfToken = sessionStorage.getItem('csrfToken');
+        const csrfHeader = sessionStorage.getItem('csrfHeader');
+
+        try {
+            const response = await fetch('http://localhost:8080/CCM/allannouncments', {
+                method: 'GET',
+                credentials: 'include',
+                headers: {
+                    'Content-Type': 'application/json',
+                    [csrfHeader]: csrfToken
+                }
+            });
+
+            if (!response.ok) throw new Error('Failed to fetch announcements');
+
+            const announcements = await response.json();
+            const container = document.getElementById('announcementsList');
+            container.innerHTML = '';
+
+            if (announcements.length === 0) {
+                container.innerHTML = '<p>No announcements found.</p>';
+                return;
+            }
+
+            announcements.forEach(showAnnouncement); // reuse same function
+        } catch (error) {
+            console.error('Error fetching announcements:', error);
+            document.getElementById('announcementsList').innerHTML = '<p>Failed to load announcements.</p>';
+        }
+    }
+
+    // Call the function to load announcements
+    fetchAnnouncements();
+
+        // =============================
+        // VIEW EVENTS
+        // =============================
+        document.getElementById('viewEventsButton').addEventListener('click', async function() {
+            try {
+                const response = await fetch(`http://localhost:8080/CCM/getevent`, {
+                    method: 'GET',
+                    credentials: 'include'
+                });
+
+                if (!response.ok) throw new Error('Failed to fetch events');
+
+                const events = await response.json();
+                const container = document.getElementById('eventsList');
+                container.innerHTML = '';
+
+                if (events.length === 0) {
+                    container.innerHTML = '<p>No upcoming events found.</p>';
+                    return;
+                }
+
+                events.forEach(ev => {
+                    const evDiv = document.createElement('div');
+                    evDiv.style.border = '1px solid gray';
+                    evDiv.style.padding = '10px';
+                    evDiv.style.marginBottom = '8px';
+                    evDiv.style.borderRadius = '5px';
+
+                    const adminName = ev.admin ? ev.admin.adminname : 'System';
+                    let imageHtml = '';
+                    if (ev.imageData) {
+                        imageHtml = `<img src="data:image/png;base64,${ev.imageData}" alt="${ev.imageName}" style="max-width:200px; display:block; margin-top:5px;">`;
+                    }
+
+                    evDiv.innerHTML = `
+                        <p><strong>Title:</strong> ${ev.title}</p>
+                        <p><strong>Description:</strong> ${ev.description}</p>
+                        <p><strong>Held Date:</strong> ${new Date(ev.heldDate).toLocaleDateString()}</p>
+                        <p><strong>Posted At:</strong> ${new Date(ev.postDateTime).toLocaleString()}</p>
+                        <p><strong>Last date To Register:</strong> ${new Date(ev.lastDateToRegister).toLocaleString()}</p>
+                        <p><strong>Posted By:</strong> ${adminName}</p>
+                        <p><strong>Registration Fee:</strong> $${ev.registrationFee.toFixed(2)}</p>
+                        ${imageHtml}
+                        <button onclick="registerEvent('${ev.title}', ${ev.registrationFee})">Register</button>
+                    `;
+                    container.appendChild(evDiv);
+                });
+            } catch (error) {
+                console.error('Error fetching events:', error);
+                alert('Could not load events.');
+            }
+        });
+
+        // =============================
+        // REGISTER EVENT
+        // =============================
+        function registerEvent(title, fee) {
+            sessionStorage.setItem('eventTitle', title);
+            sessionStorage.setItem('eventFee', fee);
+            window.location.href = 'payment.html';
+        }
+
+         
+
+        // =============================
+// CHATBOT FUNCTIONALITY
+// =============================
+
+const chatbotInput = document.getElementById("chatbotInput");
+const chatbotMessages = document.getElementById("chatbotMessages");
+const chatbotSend = document.getElementById("chatbotSend");
+const chatBotUsername = document.getElementById("chatbotUserName");
+chatBotUsername.textContent = username;
+
+chatbotSend.addEventListener("click", sendChatMessage);
+chatbotInput.addEventListener("keydown", e => { if (e.key === "Enter") sendChatMessage(); });
+
+async function sendChatMessage() {
+    
+    const text = chatbotInput.value.trim();
+    if (!text) return;
+    appendChatMessage(text, "user");
+    chatbotInput.value = "";
+
+    try {
+        const headers = { "Content-Type": "application/json" };
+        headers[csrfHeader] = csrfToken;
+
+        const conversationId = sessionStorage.getItem("contextId") || "";
+
+        const response = await fetch(`http://localhost:8080/v2/rag/chat/${username}`, {
+            method: "POST",
+            headers: headers,
+            credentials: "include",
+            body: JSON.stringify({
+                query: text,
+                conversationId: conversationId  // <-- important
+            })
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Status ${response.status}: ${errorText}`);
+        }
+
+        const data = await response.json();
+        sessionStorage.setItem("contextId", data.responseId); // store latest conversationId
+        appendChatMessage(data.response, "bot");
+    } catch (error) {
+        console.error("Chatbot error:", error);
+        appendChatMessage("❌ Something went wrong. Please try again.", "bot");
+    }
+}
+
+
+function appendChatMessage(text, sender) {
+    const msgDiv = document.createElement("div");
+    msgDiv.className = `chatbot-message chatbot-${sender}`;
+    msgDiv.textContent = text;
+    chatbotMessages.appendChild(msgDiv);
+    msgDiv.scrollIntoView();
+}
+initDashboard();
+    </script>
+</body>
+</html>

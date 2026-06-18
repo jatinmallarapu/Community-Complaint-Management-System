@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Dashboard</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { border: 1px solid gray; padding: 8px; text-align: left; }
+        th { background-color: #f2f2f2; }
+        input, textarea, select, button { margin: 5px 0; padding: 5px; }
+        .announcement-form, .event-form { margin-top: 20px; border: 1px solid #ccc; padding: 10px; border-radius: 5px; }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/sockjs-client/dist/sockjs.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/stompjs/lib/stomp.min.js"></script>
+</head>
+<body>
+    <h2>Welcome, <span id="adminUsernameDisplay"></span></h2>
+
+    <!-- ================= Event Form ================= -->
+    <div class="event-form">
+        <h3>Post a New Event</h3>
+        <label>Title:</label><br>
+        <input type="text" id="eventTitle" placeholder="Enter event title"><br>
+        <label>Description:</label><br>
+        <textarea id="eventDescription" rows="4" cols="50" placeholder="Enter event description"></textarea><br>
+        <label>Held Date:</label><br>
+        <input type="date" id="eventHeldDate"><br>
+        <label>Last Date to Register:</label><br>
+        <input type="date" id="eventLastDateToRegister"><br>
+
+        <label>Registration Fee:</label><br>
+        <span>$</span><input type="number" id="eventRegistrationFee" step="0.01" placeholder="Enter fee"><br>
+        <label>Upload Image:</label><br>
+        <input type="file" id="eventImage"><br>
+        <button id="postEventButton">Post Event</button>
+    </div>
+
+    <!-- ================= Announcement Form ================= -->
+    <div class="announcement-form">
+        <h3>Post a New Announcement</h3>
+        <label>Title:</label><br>
+        <input type="text" id="announcementTitle" placeholder="Enter announcement title"><br>
+        <label>Description:</label><br>
+        <textarea id="announcementDescription" rows="4" cols="50" placeholder="Enter announcement description"></textarea><br>
+        <button onclick="postAnnouncement()">Post Announcement</button>
+    </div>
+
+    <!-- ================= Complaints Table ================= -->
+    <button id="viewComplaintsButton">View Complaints</button>
+    <table id="complainttable" style="display: none;">
+        <thead>
+            <tr>
+                <th>Sno</th>
+                <th>Complaint id</th>
+                <th>Complaint</th>
+                <th>User id</th>
+                <th>Complaint date</th>
+                <th>Complaint time</th>
+                <th>Complaint status</th>
+                <th>Update Status</th>
+                <th>Send Notification</th>
+            </tr>
+        </thead>
+        <tbody id="tbody"></tbody>
+    </table>
+
+    <!-- ================= Chat with Users ================= -->
+    <div>
+    <h3>Chat with Users</h3>
+    <select id="selectUser"></select>
+    <input type="text" id="adminMessageInput" placeholder="Type message">
+    <button id="sendAdminMessage">Send</button>
+    <div id="adminChatWindow" style="border:1px solid gray; padding:10px; height:200px; overflow:auto"></div>
+    </div>
+
+    <script>
+        const adminname = sessionStorage.getItem('adminname');
+        document.getElementById('adminUsernameDisplay').textContent = adminname;
+        
+        const csrfToken = sessionStorage.getItem('csrfToken');
+        const csrfHeader = sessionStorage.getItem('csrfHeader');
+
+        // ================= Get Admin ID =================
+        async function getAdminId(adminname) {
+            try {
+                const response = await fetch(`http://localhost:8080/CCM/admin/getadminid?username=${encodeURIComponent(adminname)}`, {
+                    method: 'GET',
+                    credentials: 'include'
+                });
+                if (response.ok) {
+                    const adminId = await response.json();
+                    sessionStorage.setItem('adminId', adminId);
+                    return adminId;
+                }
+                console.error('Failed to fetch Admin ID');
+                return null;
+            } catch (error) {
+                console.error('Error fetching Admin ID:', error);
+                return null;
+            }
+        }
+        getAdminId(adminname);
+
+        
+        
+        
+        // ================= Post Event =================
+        document.getElementById('postEventButton').addEventListener('click', async () => {
+    const title = document.getElementById('eventTitle').value.trim();
+    const description = document.getElementById('eventDescription').value.trim();
+    const heldDate = document.getElementById('eventHeldDate').value;
+    const lastDateToRegister = document.getElementById('eventLastDateToRegister').value;
+    const registrationFee = document.getElementById('eventRegistrationFee').value;
+    const adminId = sessionStorage.getItem('adminId');
+    const imageFile = document.getElementById('eventImage').files[0];
+
+    if (!title || !description || !heldDate || !lastDateToRegister || !registrationFee) {
+        alert('Please fill all required fields.');
+        return;
+    }
+    if (!adminId) {
+        alert('Admin ID not found. Please reload the page.');
+        return;
+    }
+
+    const formData = new FormData();
+    formData.append('title', title);
+    formData.append('description', description);
+    formData.append('heldDate', heldDate);
+    formData.append('adminId', adminId);
+    formData.append('lastDateToRegister', lastDateToRegister);
+    formData.append('registrationFee', registrationFee);
+    if (imageFile) {
+        formData.append('image', imageFile);
+    }
+
+    try {
+        const headers = {};
+        headers[csrfHeader] = csrfToken;
+        const response = await fetch('http://localhost:8080/CCM/admin/addevent', {
+            method: 'POST',
+            credentials: 'include',
+            headers: headers,
+            body: formData
+        });
+
+        if (response.ok) {
+            alert('✅ Event added successfully!');
+        } else {
+            const text = await response.text();
+            console.error('Server response:', text);
+            alert('❌ Failed to add event.');
+        }
+    } catch (error) {
+        console.error('Error posting event:', error);
+        alert('Error posting event.');
+    }
+});
+
+        // ================= Post Announcement =================
+        
+            // Initialize Dashboard
+        async function initDashboard() {
+            const adminname = sessionStorage.getItem('adminname');
+            document.getElementById('adminUsernameDisplay').textContent = adminname;
+
+            const adminId = await getAdminId(adminname);
+            if (!adminId) return alert('Failed to get Admin ID');
+
+            console.log(`Admin id: ${adminId}, Admin name: ${adminname}`);
+            connect(adminId);
+            loadAdminMessages();
+        }
+
+           let stompClient = null;
+
+            function connect(adminId) {
+                //const adminId = sessionStorage.getItem('adminId');
+                console.log(`admin id is: ${adminId}`);
+                //const adminname = sessionStorage.getItem('adminname');
+                //console.log(`admin name is: ${adminname}`);
+                // connect with admin name
+                const socket = new SockJS(`http://localhost:8080/ws?userid=${adminId}`);
+                stompClient = Stomp.over(socket);
+
+                stompClient.connect({}, function (frame) {
+                    console.log('Connected: ' + frame);
+
+                    // subscribe to broadcast notifications
+                    stompClient.subscribe('/topic/announcement', function (message) {
+                        console.log('Broadcasted:', message.body);
+                    });
+                    // subscribe to broadcast messages from users
+                    stompClient.subscribe(`/user/queue/usermessage`, function (message) {
+                        const msgObj = JSON.parse(message.body);
+                        const adminChatWindow = document.getElementById('adminChatWindow');
+    
+                    // append message to admin chat window
+                    const msgElement = document.createElement('div');
+                    msgElement.textContent = `User Id ${msgObj.userId}: ${msgObj.content}---(${msgObj.timestamp})`;
+                    adminChatWindow.appendChild(msgElement);
+
+                    // scroll to bottom
+                    adminChatWindow.scrollTop = adminChatWindow.scrollHeight;
+                    });
+                }, function (error) {
+                    console.error('WebSocket connection error: ' + error);
+                });
+            }
+
+            async function loadUserIds() {
+            const selectUser = document.getElementById('selectUser');
+
+            try {
+                const response = await fetch('http://localhost:8080/CCM/getalluserids', {
+                    method: 'GET',
+                    credentials: 'include',
+                });
+
+                if (!response.ok) throw new Error("Failed to fetch user IDs");
+
+                const userIds = await response.json();
+
+                // Clear existing options
+                selectUser.innerHTML = '';
+
+                // Populate dropdown
+                userIds.forEach(id => {
+                    const option = document.createElement('option');
+                    option.value = id;
+                    option.textContent = "User Id " + id;
+                    selectUser.appendChild(option);
+                });
+            } catch (err) {
+                console.error("Error loading user IDs:", err);
+            }
+        }
+// Call the function on page load
+loadUserIds();
+            document.getElementById('sendAdminMessage').addEventListener('click', function() {
+                const adminId = sessionStorage.getItem('adminId');
+                const selectUser = document.getElementById('selectUser');
+                const userIdSelected = selectUser.value; // Get selected user
+                const content = document.getElementById('adminMessageInput').value;
+
+                // Check if message content is empty or no user is selected
+                if (!content || !userIdSelected) {
+                    alert("Please select a user and type a message");
+                    return;
+                }
+                // Construct the message object
+                const timestamp = new Date().toLocaleString();
+                const msg = {
+                    userId: parseInt(userIdSelected), // user ID selected from dropdown
+                    adminId: parseInt(adminId),       // admin's own ID
+                    content: content,                  // message text
+                    timestamp: timestamp
+                };
+                // Send message via STOMP
+                stompClient.send("/app/sendadminmessage", {}, JSON.stringify(msg));
+                // Show message in admin chat window
+                appendAdminMessage(`You to User Id ${userIdSelected}: ${content}---(${msg.timestamp})`);
+                // Clear input box after sending
+                document.getElementById('adminMessageInput').value = '';
+            });
+
+
+            function appendAdminMessage(message) {
+            const adminChatWindow = document.getElementById('adminChatWindow');
+            const msgElement = document.createElement('div');
+            msgElement.textContent = message;
+            msgElement.style.fontWeight = 'bold'; // optional, to distinguish admin messages
+            adminChatWindow.appendChild(msgElement);
+            adminChatWindow.scrollTop = adminChatWindow.scrollHeight; // scroll to bottom
+        }
+
+         async function loadAdminMessages() {
+        try {
+            const adminId = sessionStorage.getItem('adminId');
+            const adminChatWindow = document.getElementById('adminChatWindow');
+            const response = await fetch(`http://localhost:8080/CCM/admin/getalladminusermessages?adminId=${adminId}`,{
+                method: 'GET',
+                credentials: 'include'
+            });
+            if (!response.ok) throw new Error('Network response was not ok');
+
+            const messages = await response.json();
+            adminChatWindow.innerHTML = ''; // Clear chat window
+
+            messages.forEach(msg => {
+                const msgDiv = document.createElement('div');
+                msgDiv.style.borderBottom = "1px solid #ccc";
+                msgDiv.style.marginBottom = "5px";
+                msgDiv.style.paddingBottom = "5px";
+
+                msgDiv.innerHTML = `
+                    <strong>${msg.response.includes('Admin') ? `You to UserId ${msg.userId}` : msg.response}</strong>: ${msg.content}<br>
+                    <small><strong>Time:</strong> ${msg.timestamp}</small>
+                `;
+                adminChatWindow.appendChild(msgDiv);
+            });
+
+            // Scroll to the latest message
+            adminChatWindow.scrollTop = adminChatWindow.scrollHeight;
+        } catch (error) {
+            console.error('Error fetching admin messages:', error);
+        }
+    }
+
+    
+
+
+            //posting announcment
+            function postAnnouncement(){
+                const title = document.getElementById('announcementTitle').value.trim();
+                const description = document.getElementById('announcementDescription').value.trim();
+                const adminId = sessionStorage.getItem('adminId');
+                console.log(`Admin ID: ${adminId}`);
+                if (stompClient && stompClient.connected) {
+                    stompClient.send('/app/sendannouncement', {}, JSON.stringify(
+                        {
+                            title: title,
+                            description: description,
+                            admin: {adminId: adminId}
+                        }
+                ));
+                    console.log('Message sent to all:', {title: title, description: description,
+                                                        admin: {adminId: adminId}
+                    });
+                } else {
+                    console.error('WebSocket not connected.');
+                }
+            }
+
+        // ================= Load Complaints =================
+        document.getElementById('viewComplaintsButton').addEventListener('click', async function () {
+            const complaintTable = document.getElementById('complainttable');
+            const tbody = document.getElementById('tbody');
+            tbody.innerHTML = '';
+
+            try {
+                const response = await fetch('http://localhost:8080/CCM/admin/viewcomplaints', {
+                    method: 'GET',
+                    credentials: 'include'
+                });
+
+                if (!response.ok) throw new Error('Failed to fetch complaints');
+                const complaints = await response.json();
+
+                complaints.forEach((complaint, index) => {
+                    const tr = document.createElement('tr');
+
+                    // Status dropdown
+                    const statusDropdown = document.createElement('select');
+                    ['UNSOLVED','INPROGRESS','RESOLVED'].forEach(status => {
+                        const option = document.createElement('option');
+                        option.value = status;
+                        option.textContent = status;
+                        if (complaint.complaintStatus === status) option.selected = true;
+                        statusDropdown.appendChild(option);
+                    });
+                    statusDropdown.addEventListener('change', async function() {
+                        const newStatus = this.value;
+                        try {
+                            const headers = { 'Content-Type': 'application/json' };
+                            headers[csrfHeader] = csrfToken;
+
+                            const res = await fetch(`http://localhost:8080/CCM/admin/editcomplaintstatus?complaintId=${complaint.id}`, {
+                                method: 'PUT',
+                                credentials: 'include',
+                                headers: headers,
+                                body: newStatus
+                            });
+                            if (!res.ok) alert('Failed to update status');
+                            else {
+                                tr.cells[6].textContent = newStatus;
+                                complaint.complaintStatus = newStatus;
+                            }
+                        } catch (error) {
+                            console.error('Error updating status:', error);
+                            alert('Error updating status');
+                        }
+                    });
+
+                    tr.innerHTML = `
+                        <td>${index + 1}</td>
+                        <td>${complaint.id}</td>
+                        <td>${complaint.complaint}</td>
+                        <td>${complaint.user ? complaint.user.id : ''}</td>
+                        <td>${complaint.complaintDate}</td>
+                        <td>${complaint.complaintTime}</td>
+                        <td>${complaint.complaintStatus}</td>
+                    `;
+                    const tdDropdown = document.createElement('td');
+                    tdDropdown.appendChild(statusDropdown);
+                    tr.appendChild(tdDropdown);
+
+                    // Send notification button
+                    const tdNotification = document.createElement('td');
+                    const notifyButton = document.createElement('button');
+                    notifyButton.textContent = 'Send Notification';
+                    tdNotification.appendChild(notifyButton);
+                    tr.appendChild(tdNotification);
+
+                    notifyButton.addEventListener('click', async () => {
+                        const userId = complaint.user ? complaint.user.id : null;
+                        if (!userId || !adminId) { alert('User or Admin ID missing!'); return; }
+
+                        const message = `Your complaint with ID: ${complaint.id} status is updated to ${complaint.complaintStatus}`;
+                        const notification = { message, user: { id: userId }, admin: { adminId: parseInt(adminId) } };
+
+                        try {
+                            const headers = { 'Content-Type': 'application/json' };
+                            headers[csrfHeader] = csrfToken;
+
+                            const response = await fetch('http://localhost:8080/CCM/admin/addnotification', {
+                                method: 'POST',
+                                credentials: 'include',
+                                headers: headers,
+                                body: JSON.stringify(notification)
+                            });
+
+                            if (response.ok) alert(`Notification sent to User ${userId}`);
+                            else { const text = await response.text(); console.error(text); alert('Failed to send notification'); }
+                        } catch (error) {
+                            console.error('Error sending notification:', error);
+                            alert('Error sending notification');
+                        }
+                    });
+
+                    tbody.appendChild(tr);
+                });
+
+                complaintTable.style.display = 'table';
+            } catch (error) {
+                console.error('Error fetching complaints:', error);
+                alert('Could not load complaints.');
+            }
+        });
+initDashboard();
+    </script>
+</body>
+</html>

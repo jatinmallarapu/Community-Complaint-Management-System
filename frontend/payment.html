@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+</head>
+<body>
+    <h1>Welcome to the Payment Page, Mr. <span id="usernameDisplay"></span></h1>
+    <h2>You are paying for: <span id="eventTitleDisplay"></span></h2>
+    <h2>You need to pay: $<span id="amountDisplay"></span></h2>
+    <script>
+        document.getElementById('usernameDisplay').textContent = localStorage.getItem('username');
+        document.getElementById('eventTitleDisplay').textContent = localStorage.getItem('eventTitle');
+        document.getElementById('amountDisplay').textContent = localStorage.getItem('eventFee');
+    </script>
+</body>
+</html>
